@@ -12,7 +12,7 @@ The seed_page variable is the url you want to begin crawling (for example, when 
 	
 Because state is persisted to a DB, any crash can be recovered from by simply just starting the server up again.
 		
-**WARNING: This crawler does not take into account the robots.txt file. **
+**WARNING: This crawler does not take into account the robots.txt file.**
 	
 ## Future work/additions: 
 * currently if a 404 response is given, the crawler moves onto the next link and continues. This isn't ideal if, for example, the internet connection temporarily drops. Some handling of this would be nice.
