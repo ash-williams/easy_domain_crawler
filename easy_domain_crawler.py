@@ -1,27 +1,29 @@
 """
 	EASY DOMAIN CRAWLER FOR MONGODB
-	
+
 	This simple crawler starts with a seed page and will continuously crawl pages linked to from this seed page as long as the pages are within the same top level domain. It writes the output to a Mongo database.
-	
+
 	To use:
 		import easy_domain_crawler
 		easy_domain_crawler.crawl(seed_page, db_url, db_client)
-	
+
 	Where the seed_page variable is the url you want to begin crawling (for example, when crawling a blog, you'd probably want to use the sites 'archive' page), the optional db_url variable is the url to your mongo instance (defaulted to mongodb://localhost:27017) and the optional db_client variable is the name of the database within mongo that you want to use (defaulted to 'crawler_results').
-	
+
 	Because state is persisted to a DB, any crash can be recovered from by simply just starting the server up again.
-		
-	WARNING: This crawler does not take into account the robots.txt file. 
-	
-	Future work/additions: 
+
+	WARNING: This crawler does not take into account the robots.txt file.
+
+	Future work/additions:
 		- currently if a 404 response is given, the crawler moves onto the next link and continues. This isn't ideal if, for example, the internet connection temporarily drops. Some handling of this would be nice.
-	
+
 	Author: Ashley Williams, 29th July 2018
 """
 import sys
 from pymongo import MongoClient
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
+import urllib3
+import certifi
 
 
 
@@ -35,74 +37,112 @@ def getDB(db_url, db_client):
 		sys.exit()
 	else:
 		return db
-		
-		
+
+
+
+def get_html(url):
+	"""
+		Given a URL, will return the HTML using urllib3.
+		:param url: The url to extract the HTML from
+		:return: If extracted successfully, the HTML is returned. If there is a failure, a message with HTTP status. If an exception is thrown, -1 is returned witha  description of the error
+	"""
+	try:
+		# urllib3.disable_warnings()
+		# Try with new where function, but sometimes it failes
+		# so then try old where function
+		# Read more: https://github.com/certifi/python-certifi#usage
+		try:
+		    http = urllib3.PoolManager(
+		        cert_reqs='CERT_REQUIRED',
+		        ca_certs=certifi.where()
+		    )
+		except:
+		    http = urllib3.PoolManager(
+		        cert_reqs='CERT_REQUIRED',
+		        ca_certs=certifi.old_where()
+		    )
+
+		r = http.request('GET', url, timeout=5.0)
+
+		if str(r.status).startswith("2"):
+		    html = r.data.decode("utf-8")
+		    return html
+		else:
+		    return "Failed to get html, status: " + str(r.status)
+	except Exception as e:
+		sys.stdout.write(str(e))
+		return "-1: " + str(e)
+
+
 
 def get_all_links(url, SEED_DOMAIN):
-	""" 
+	"""
 		Get all links from the same domain and returns as a list
 	"""
-	html = um.get_html(url)
+	html = get_html(url)
 	soup = BeautifulSoup(html, "html5lib")
 	all_urls = []
-		
+
 	try:
 		for link in soup.find_all('a'):
-			#print(link)
+			# print(link)
 			all_urls.append(link.get('href'))
 	except Exception as e:
 		print(e)
-		
+
 	result_urls = []
-	
+
 	for url in all_urls:
 		domain = urlparse(url).netloc
-		
+
 		if domain == SEED_DOMAIN:
 			result_urls.append(url)
-	
-	return result_urls, html
-	
 
-	
-	
+	return result_urls, html
+
+
+
+
 def crawl(seed_page, db_url="mongodb://localhost:27017", db_client="crawler_results"):
 	"""
 	The main method to be run.
 	"""
 	DB = getDB(db_url, db_client)
 	SEED_DOMAIN = urlparse(seed_page).netloc
-			
+
 	DB.to_crawl.insert_one({"url": seed_page})
-	
+
 	flag = True
-	
+
 	while flag:
 		print()
 		print("To crawl: " + str(DB.to_crawl.count()))
 		print("Crawled: " + str(DB.crawled_links.count()))
 		print()
 		if DB.to_crawl.count() != 0:
-			link = DB.to_crawl.find()[0]		
+			link = DB.to_crawl.find()[0]
 			url = link['url']
-			
+
 			DB.to_crawl.remove({"url": url})
-			
+
 			all_links, html = get_all_links(url, SEED_DOMAIN)
-			
+
+			# print(all_links)
+
 			for u in all_links:
 				exists = DB.to_crawl.find({"url": u})
 				crawled = DB.crawled_links.find({"url": u})
-				if exists.count() == 0 and crawled.count == 0:
+
+				# print(exists.count(), crawled.count())
+
+				if exists.count() == 0 and crawled.count() == 0:
 					DB.to_crawl.insert_one({"url": u})
-			
+
 			exists = DB.crawled_links.find({"url": url})
 			if exists.count() == 0:
 				DB.crawled_links.insert_one({"url":url})
 				DB.pages.insert_one({"url":url, "html": html})
 		else:
 			flag = False
-	
+
 	print("Finished")
-	
-	
